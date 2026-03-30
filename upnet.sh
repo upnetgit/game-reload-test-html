@@ -1,0 +1,1 @@
+python C:\Users\qhy\Desktop\python游戏\Python_game\app.py

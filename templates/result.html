@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>游戏结算 - 俄罗斯轮盘</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: #34495e;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        h1, h2 {
+            text-align: center;
+        }
+        .winner {
+            text-align: center;
+            font-size: 1.5em;
+            margin: 20px 0;
+            padding: 10px;
+            background: #f39c12;
+            border-radius: 8px;
+        }
+        .history {
+            background: #2c3e50;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .history-item {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #f39c12;
+            background: #1e2a36;
+            font-size: 0.9rem;
+        }
+        button {
+            background: #3498db;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            margin: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        .reset-btn {
+            background: #e67e22;
+        }
+        .reset-btn:hover {
+            background: #d35400;
+        }
+        .life {
+            font-size: 1.2em;
+            letter-spacing: 5px;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+        }
+        .stat {
+            text-align: center;
+            padding: 10px;
+            background: #1e2a36;
+            border-radius: 8px;
+            width: 45%;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>游戏结束</h1>
+    <div class="winner">
+        🎉 获胜者：玩家{{ winner }} 🎉
+    </div>
+    <div class="stats">
+        <div class="stat">
+            <h3>玩家1</h3>
+            <div class="life">❤️{{ p1_life }}</div>
+        </div>
+        <div class="stat">
+            <h3>玩家2</h3>
+            <div class="life">❤️{{ p2_life }}</div>
+        </div>
+    </div>
+    <h2>完整操作记录</h2>
+    <div class="history">
+        {% for msg in history %}
+        <div class="history-item">{{ msg }}</div>
+        {% endfor %}
+        {% if not history %}
+        <div class="history-item">无操作记录</div>
+        {% endif %}
+    </div>
+    <div style="text-align: center;">
+        <button onclick="window.location.href='/reset'">重新开始</button>
+        <button onclick="window.location.href='/'">返回首页</button>
+    </div>
+</div>
+</body>
+</html>

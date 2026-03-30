@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>俄罗斯轮盘游戏</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: #34495e;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        .status {
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .players {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .player {
+            background: #2c3e50;
+            padding: 15px;
+            border-radius: 8px;
+            width: 45%;
+        }
+        .player h3 {
+            margin-top: 0;
+        }
+        .life {
+            font-size: 1.2em;
+            letter-spacing: 5px;
+        }
+        .items {
+            margin: 10px 0;
+        }
+        .item {
+            display: inline-block;
+            background: #e67e22;
+            padding: 5px 10px;
+            margin: 2px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .item:hover {
+            background: #d35400;
+        }
+        .gun {
+            background: #7f8c8d;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .message {
+            background: #1abc9c;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+        }
+        .history {
+            background: #2c3e50;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 0.9rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        button {
+            background: #3498db;
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+        .reset-btn {
+            background: #e67e22;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: white;
+            color: black;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .modal button {
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="status" id="status"></div>
+    <div class="players">
+        <div class="player" id="player1">
+            <h3>玩家1</h3>
+            <div class="life" id="p1_life"></div>
+            <div class="items" id="p1_items"></div>
+        </div>
+        <div class="player" id="player2">
+            <h3>玩家2</h3>
+            <div class="life" id="p2_life"></div>
+            <div class="items" id="p2_items"></div>
+        </div>
+    </div>
+    <div class="gun" id="gunDisplay">
+        <div>剩余子弹：<span id="gun_total"></span></div>
+        <div>伤害倍率：<span id="damage"></span></div>
+    </div>
+    <div class="message" id="message"></div>
+    <div class="history">
+        <h4>操作历史（最近10步）</h4>
+        <div id="history-list"></div>
+    </div>
+    <div id="action-buttons">
+        <button id="shoot-self">向自己开枪</button>
+        <button id="shoot-other">向对方开枪</button>
+        <button id="reset-game" class="reset-btn">重新开始</button>
+        <div id="items-buttons"></div>
+    </div>
+</div>
+<div id="epinephrine-modal" class="modal">
+    <div class="modal-content">
+        <h3>肾上腺素倒计时 <span id="countdown">3</span> 秒</h3>
+        <p>选择要偷取的道具：</p>
+        <div id="steal-choices"></div>
+    </div>
+</div>
+
+<script>
+    const itemNames = {
+        1: 'knife',
+        2: 'beer',
+        3: 'handcuffs',
+        4: 'glasses',
+        5: 'smoke',
+        6: 'phone',
+        7: 'epinephrine'
+    };
+
+    const initialState = {% if state is defined %}{{ state | tojson | safe }}{% else %}null{% endif %};
+    const initialMode = {% if mode is defined %}{{ mode | tojson | safe }}{% else %}null{% endif %};
+
+    let currentPlayer = 1;
+    let gameOver = false;
+    let mode = initialMode;
+    let timer = null;
+    let epiModalActive = false;
+    let detailTimeout = null;
+    let aiTimer = null;
+
+    function updateUI(state) {
+        document.getElementById('p1_life').innerText = '❤️'.repeat(state.p1_life);
+        document.getElementById('p2_life').innerText = '❤️'.repeat(state.p2_life);
+        const gunDiv = document.getElementById('gunDisplay');
+        if (state.show_gun_details) {
+            gunDiv.innerHTML = `
+                <div>实弹：${state.gun_red} 空包弹：${state.gun_black}</div>
+                <div>伤害倍率：<span id="damage">${state.damage_multiplier}</span></div>
+            `;
+            if (detailTimeout) clearTimeout(detailTimeout);
+            detailTimeout = setTimeout(() => {
+                fetch('/api/reset_gun_details', { method: 'POST' })
+                    .then(() => fetchState());
+            }, 5000);
+        } else {
+            gunDiv.innerHTML = `
+                <div>剩余子弹：<span id="gun_total">${state.gun_red + state.gun_black}</span></div>
+                <div>伤害倍率：<span id="damage">${state.damage_multiplier}</span></div>
+            `;
+        }
+        document.getElementById('message').innerText = state.message;
+        const historyDiv = document.getElementById('history-list');
+        historyDiv.innerHTML = '';
+        if (state.history && state.history.length) {
+            state.history.forEach(msg => {
+                const p = document.createElement('div');
+                p.innerText = msg;
+                p.style.fontSize = '0.8rem';
+                p.style.margin = '2px 0';
+                historyDiv.appendChild(p);
+            });
+        } else {
+            historyDiv.innerHTML = '<div>暂无操作记录</div>';
+        }
+        historyDiv.scrollTop = historyDiv.scrollHeight;
+        const p1ItemsDiv = document.getElementById('p1_items');
+        p1ItemsDiv.innerHTML = '';
+        for (let [id, count] of Object.entries(state.p1_items)) {
+            p1ItemsDiv.innerHTML += `<div class="item" data-item="${id}">${itemNames[id]} x${count}</div> `;
+        }
+        const p2ItemsDiv = document.getElementById('p2_items');
+        p2ItemsDiv.innerHTML = '';
+        for (let [id, count] of Object.entries(state.p2_items)) {
+            p2ItemsDiv.innerHTML += `<div class="item" data-item="${id}">${itemNames[id]} x${count}</div> `;
+        }
+        document.getElementById('status').innerHTML = `当前行动：玩家${state.current_player}`;
+        document.querySelectorAll('.player').forEach(p => p.style.border = 'none');
+        document.getElementById(`player${state.current_player}`).style.border = '2px solid #f1c40f';
+
+        currentPlayer = state.current_player;
+        gameOver = state.winner !== null;
+
+        const shootSelf = document.getElementById('shoot-self');
+        const shootOther = document.getElementById('shoot-other');
+        const p1Items = document.getElementById('p1_items');
+        const p2Items = document.getElementById('p2_items');
+        if (gameOver) {
+            shootSelf.disabled = true;
+            shootOther.disabled = true;
+            p1Items.style.pointerEvents = 'none';
+            p2Items.style.pointerEvents = 'none';
+            if (aiTimer) clearTimeout(aiTimer);
+            aiTimer = null;
+        } else {
+            if (mode === 2 && state.current_player === 2) {
+                shootSelf.disabled = true;
+                shootOther.disabled = true;
+                p1Items.style.pointerEvents = 'none';
+                p2Items.style.pointerEvents = 'none';
+                if (aiTimer) clearTimeout(aiTimer);
+                startAITurn();
+            } else {
+                if (state.current_player === 1) {
+                    shootSelf.disabled = false;
+                    shootOther.disabled = false;
+                    p1Items.style.pointerEvents = 'auto';
+                    p2Items.style.pointerEvents = 'none';
+                } else if (state.current_player === 2 && mode === 1) {
+                    shootSelf.disabled = false;
+                    shootOther.disabled = false;
+                    p1Items.style.pointerEvents = 'none';
+                    p2Items.style.pointerEvents = 'auto';
+                } else {
+                    shootSelf.disabled = true;
+                    shootOther.disabled = true;
+                    p1Items.style.pointerEvents = 'none';
+                    p2Items.style.pointerEvents = 'none';
+                }
+            }
+        }
+    }
+
+    function fetchState() {
+        fetch('/api/status')
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    console.error(data.error);
+                    return;
+                }
+                updateUI(data);
+                if (mode === null) mode = data.mode;
+            })
+            .catch(err => console.error('状态获取失败:', err));
+    }
+
+    function sendAction(action) {
+        if (gameOver) {
+            alert('游戏已结束');
+            return;
+        }
+        fetch('/api/action', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(action)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+            } else {
+                updateUI(data.state);
+                if (data.game_over) {
+                    if (aiTimer) clearTimeout(aiTimer);
+                    window.location.href = '/result';
+                    return;
+                }
+                if (data.need_choice) {
+                    showEpinephrineModal(data.items);
+                }
+                fetchState();
+            }
+        })
+        .catch(err => {
+            console.error('请求失败:', err);
+            alert('网络错误，请重试');
+        });
+    }
+
+    function showEpinephrineModal(items) {
+        if (epiModalActive) return;
+        epiModalActive = true;
+        if (timer) clearInterval(timer);
+        const modal = document.getElementById('epinephrine-modal');
+        const choicesDiv = document.getElementById('steal-choices');
+        choicesDiv.innerHTML = '';
+        items.forEach(item => {
+            const btn = document.createElement('button');
+            btn.innerText = `${itemNames[item]} (${item})`;
+            btn.onclick = () => {
+                clearInterval(timer);
+                modal.style.display = 'none';
+                epiModalActive = false;
+                sendAction({
+                    type: 'steal',
+                    player: currentPlayer,
+                    item: parseInt(item)
+                });
+            };
+            choicesDiv.appendChild(btn);
+        });
+        modal.style.display = 'flex';
+        let countdown = 3;
+        const countdownSpan = document.getElementById('countdown');
+        timer = setInterval(() => {
+            countdown--;
+            countdownSpan.innerText = countdown;
+            if (countdown <= 0) {
+                clearInterval(timer);
+                modal.style.display = 'none';
+                epiModalActive = false;
+                sendAction({
+                    type: 'epinephrine_timeout',
+                    player: currentPlayer
+                });
+            }
+        }, 1000);
+    }
+
+    function startAITurn() {
+        if (aiTimer) clearTimeout(aiTimer);
+        function step() {
+            fetch('/api/ai_step', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error('AI step error:', data.error);
+                        aiTimer = setTimeout(step, 2000);
+                        return;
+                    }
+                    updateUI(data.state);
+                    if (data.game_over) {
+                        if (aiTimer) clearTimeout(aiTimer);
+                        window.location.href = data.redirect;
+                        return;
+                    }
+                    if (data.continue) {
+                        aiTimer = setTimeout(step, 1000);
+                    } else {
+                        aiTimer = null;
+                    }
+                })
+                .catch(err => {
+                    console.error('AI step network error:', err);
+                    aiTimer = setTimeout(step, 2000);
+                });
+        }
+        step();
+    }
+
+    document.getElementById('shoot-self').onclick = () => {
+        if (gameOver) return;
+        sendAction({
+            type: 'shoot',
+            player: currentPlayer,
+            target: currentPlayer
+        });
+    };
+    document.getElementById('shoot-other').onclick = () => {
+        if (gameOver) return;
+        let target = currentPlayer === 1 ? 2 : 1;
+        sendAction({
+            type: 'shoot',
+            player: currentPlayer,
+            target: target
+        });
+    };
+    document.getElementById('reset-game').onclick = () => {
+        if (aiTimer) clearTimeout(aiTimer);
+        window.location.href = '/reset';
+    };
+    document.getElementById('p1_items').addEventListener('click', (e) => {
+        if (e.target.classList.contains('item') && currentPlayer === 1 && !gameOver) {
+            const item = e.target.dataset.item;
+            sendAction({
+                type: 'use_item',
+                player: 1,
+                item: parseInt(item)
+            });
+        }
+    });
+    document.getElementById('p2_items').addEventListener('click', (e) => {
+        if (e.target.classList.contains('item') && currentPlayer === 2 && !gameOver && mode === 1) {
+            const item = e.target.dataset.item;
+            sendAction({
+                type: 'use_item',
+                player: 2,
+                item: parseInt(item)
+            });
+        }
+    });
+
+    function startGame(mode) {
+        fetch('/start', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `mode=${mode}`
+        }).then(response => {
+            if (response.redirected) {
+                window.location.href = response.url;
+            } else {
+                window.location.href = '/game';
+            }
+        }).catch(err => {
+            console.error('启动游戏失败:', err);
+            alert('启动游戏失败，请检查后端是否运行。');
+        });
+    }
+
+    if (initialState && Object.keys(initialState).length > 0) {
+        updateUI(initialState);
+        currentPlayer = initialState.current_player;
+        gameOver = initialState.winner !== null;
+        mode = initialState.mode;
+        setInterval(fetchState, 2000);
+    } else if (!window.location.search.includes('game')) {
+        const modal = document.createElement('div');
+        modal.style.position = 'fixed';
+        modal.style.top = '0';
+        modal.style.left = '0';
+        modal.style.width = '100%';
+        modal.style.height = '100%';
+        modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
+        modal.style.display = 'flex';
+        modal.style.justifyContent = 'center';
+        modal.style.alignItems = 'center';
+        modal.innerHTML = `
+            <div style="background: #2c3e50; padding: 20px; border-radius: 10px; text-align: center;">
+                <h2>选择游戏模式</h2>
+                <button id="pvp">双人对战 (PVP)</button>
+                <button id="pve">人机对战 (PVE)</button>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        document.getElementById('pvp').onclick = () => startGame(1);
+        document.getElementById('pve').onclick = () => startGame(2);
+    } else {
+        fetchState();
+        setInterval(fetchState, 2000);
+    }
+</script>
+</body>
+</html>
